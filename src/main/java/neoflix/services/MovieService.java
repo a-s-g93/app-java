@@ -45,11 +45,30 @@ public class MovieService {
     // tag::all[]
     public List<Map<String,Object>> all(Params params, String userId) {
         // TODO: Open an Session
+    	try (var session = driver.session()){
+    		var movies = session.executeRead(tx -> {
+    			Params.Sort sort = params.sort(Params.Sort.title);
+    			String query = String.format("""
+    					match (m:Movie)
+    					where m.`%s` is not null
+    					return m {
+    					.*
+    					} as movie
+    					order by m.`%s` %s
+    					skip $skip
+    					limit $limit
+    					""", sort, sort, params.order());
+    			var res = tx.run(query, Values.parameters("skip", params.skip(), "limit", params.limit()));
+    			return res.list(row -> row.get("movie").asMap());
+    		});
+    		
+    		return movies;
+    	}
         // TODO: Execute a query in a new Read Transaction
         // TODO: Get a list of Movies from the Result
         // TODO: Close the session
 
-        return AppUtils.process(popular, params);
+//        return AppUtils.process(popular, params);
     }
     // end::all[]
 

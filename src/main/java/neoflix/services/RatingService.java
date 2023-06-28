@@ -2,7 +2,11 @@ package neoflix.services;
 
 import neoflix.AppUtils;
 import neoflix.Params;
+import neoflix.ValidationException;
+
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Values;
+import org.neo4j.driver.exceptions.NoSuchRecordException;
 
 import java.util.HashMap;
 import java.util.List;
@@ -64,9 +68,31 @@ public class RatingService {
         // TODO: Save the rating in the database
         // TODO: Return movie details and a rating
 
-        var copy = new HashMap<>(pulpfiction);
-        copy.put("rating",rating);
-        return copy;
+    	try (var session = this.driver.session()) {
+    		
+    		var movie = session.executeWrite(tx -> {
+    			
+    			String query = """
+    					match (u:User {userId: $userId})
+    					match (m:Movie {tmdbId: $movieId})
+    					
+    					merge (u)-[r:RATED]-(m)
+    					set r.rating = $rating, r.timestamp = timestamp()
+    					
+    					return m {.*, rating: r.rating} as movie
+    					""";
+    			
+	    		var res = tx.run(query, Values.parameters("userId", userId, "movieId", movieId, "rating", rating));
+	    		return res.single().get("movie").asMap();
+    		});
+		return movie;
+    	} catch (NoSuchRecordException e) {
+    		throw new ValidationException("Movie or user not found to add rating", Map.of("movie", movieId, "user", userId));
+    	}
+//        var copy = new HashMap<>(pulpfiction);
+//        copy.put("rating",rating);
+//        return copy;
+    	
     }
     // end::add[]
 }

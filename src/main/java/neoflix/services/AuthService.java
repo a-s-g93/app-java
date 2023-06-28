@@ -4,6 +4,9 @@ import neoflix.AppUtils;
 import neoflix.AuthUtils;
 import neoflix.ValidationException;
 import org.neo4j.driver.Driver;
+import org.neo4j.driver.Values;
+import org.neo4j.driver.exceptions.ClientException;
+import org.neo4j.driver.exceptions.NoSuchRecordException;
 
 import java.util.List;
 import java.util.Map;
@@ -55,14 +58,40 @@ public class AuthService {
         // end::constraintError[]
 
         // TODO: Save user in database
-        var user = Map.<String,Object>of("email",email, "name",name,
-                "userId", String.valueOf(email.hashCode()), "password", encrypted);
-        users.add(user);
+        try (var session = driver.session()) {
+        	var user = session.executeWrite(tx -> {
+        		String statement = """		
+        		create (
+    				u:User {
+        			userId: randomUuid(),
+        			email: $email,
+        			password: $encrypted,
+        			name: $name
+        			}
+        			)
+        			return u {.userId, .name, .email} as u
+        			
+        				""";
+        	var res = tx.run(statement, Values.parameters("email", email, "encrypted", encrypted, "name", name));
+        	return res.single().get("u").asMap();
+        	});
+        	 String sub = (String) user.get("userId");
+             String token = AuthUtils.sign(sub,userToClaims(user), jwtSecret);
 
-        String sub = (String) user.get("userId");
-        String token = AuthUtils.sign(sub,userToClaims(user), jwtSecret);
+             return userWithToken(user, token);
+        } catch (ClientException e) {
+            // Handle unique constraints in the database
+            if (e.code().equals("Neo.ClientError.Schema.ConstraintValidationFailed")) {
+                throw new ValidationException("An account already exists with the email address", Map.of("email","Email address already taken"));
+            }
+            throw e;
+        }
+        
+//        var user = Map.<String,Object>of("email",email, "name",name,
+//                "userId", String.valueOf(email.hashCode()), "password", encrypted);
+//        users.add(user);
 
-        return userWithToken(user, token);
+       
     }
     // end::register[]
 
@@ -89,18 +118,58 @@ public class AuthService {
     // tag::authenticate[]
     public Map<String,Object> authenticate(String email, String plainPassword) {
         // TODO: Authenticate the user from the database
-        var foundUser = users.stream().filter(u -> u.get("email").equals(email)).findAny();
-        if (foundUser.isEmpty())
+//    	try (var session = this.driver.session()) {
+//    		var user = session.executeRead(tx -> {
+//    			String statement = "match (u:User {email: $email}) return u";
+//    			var res = tx.run(statement, Values.parameters("email", email));
+//    			return res.single().get("u").asMap();
+//    		});
+//    		if (!AuthUtils.verifyPassword(plainPassword, (String)user.get("password"))) {
+//        		throw new ValidationException("Incorrect password", Map.of("password", "Incorrect Password"));
+//        	}
+//    	
+//    		
+//    		String sub = (String) user.get("userId");
+//	        String token = AuthUtils.sign(sub, userToClaims(user), jwtSecret);
+//	        
+//	        return userWithToken(user, token);
+//	        
+//    	} catch (NoSuchRecordException e) {
+//    		throw new ValidationException("Incorrect email", Map.of("email", "Incorrect email"));
+//    	}
+    	
+    	try (var session = this.driver.session()) {
+            // Find the User node within a Read Transaction
+            var user = session.executeRead(tx -> {
+                String statement = "MATCH (u:User {email: $email}) RETURN u";
+                var res = tx.run(statement, Values.parameters("email", email));
+                return res.single().get("u").asMap();
+
+            });
+
+            // Check password
+            if (!AuthUtils.verifyPassword(plainPassword, (String)user.get("password"))) {
+                throw new ValidationException("Incorrect password", Map.of("password","Incorrect password"));
+            }
+
+            String sub = (String)user.get("userId");
+            String token = AuthUtils.sign(sub, userToClaims(user), jwtSecret);
+            return userWithToken(user, token);
+        } catch(NoSuchRecordException e) {
             throw new ValidationException("Incorrect email", Map.of("email","Incorrect email"));
-        var user = foundUser.get();
-        if (!plainPassword.equals(user.get("password")) && 
-            !AuthUtils.verifyPassword(plainPassword,(String)user.get("password"))) { // 
-            throw new ValidationException("Incorrect password", Map.of("password","Incorrect password"));
         }
+    	
+    	
+//        var foundUser = users.stream().filter(u -> u.get("email").equals(email)).findAny();
+//        if (foundUser.isEmpty())
+//            throw new ValidationException("Incorrect email", Map.of("email","Incorrect email"));
+//        var user = foundUser.get();
+//        if (!plainPassword.equals(user.get("password")) && 
+//            !AuthUtils.verifyPassword(plainPassword,(String)user.get("password"))) { // 
+//            throw new ValidationException("Incorrect password", Map.of("password","Incorrect password"));
+//        }
         // tag::return[]
-        String sub = (String) user.get("userId");
-        String token = AuthUtils.sign(sub, userToClaims(user), jwtSecret);
-        return userWithToken(user, token);
+       
         // end::return[]
     }
     // end::authenticate[]

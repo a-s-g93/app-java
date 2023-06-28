@@ -1,6 +1,7 @@
 package neoflix;
 
 import com.google.gson.Gson;
+
 import org.neo4j.driver.AuthToken;
 import org.neo4j.driver.AuthTokens;
 import org.neo4j.driver.Driver;
@@ -46,7 +47,11 @@ public class AppUtils {
     // tag::initDriver[]
     static Driver initDriver() {
         // TODO: Create and assign an instance of the driver here
-        return null;
+
+        AuthToken auth = AuthTokens.basic(getNeo4jUsername(), getNeo4jPassword());
+        Driver driver = GraphDatabase.driver(getNeo4jUri(), auth);
+        driver.verifyConnectivity();
+        return driver;
     }
     // end::initDriver[]
 
