@@ -47,18 +47,22 @@ public class MovieService {
         // TODO: Open an Session
     	try (var session = driver.session()){
     		var movies = session.executeRead(tx -> {
+    			
+    			var favorites = getUserFavorites(tx, userId);
+    			
     			Params.Sort sort = params.sort(Params.Sort.title);
     			String query = String.format("""
     					match (m:Movie)
     					where m.`%s` is not null
     					return m {
-    					.*
+    					.*,
+    					favorite: m.tmdbId in $favorites
     					} as movie
     					order by m.`%s` %s
     					skip $skip
     					limit $limit
     					""", sort, sort, params.order());
-    			var res = tx.run(query, Values.parameters("skip", params.skip(), "limit", params.limit()));
+    			var res = tx.run(query, Values.parameters("skip", params.skip(), "limit", params.limit(), "favorites", favorites));
     			return res.list(row -> row.get("movie").asMap());
     		});
     		
@@ -216,7 +220,19 @@ public class MovieService {
      */
     // tag::getUserFavorites[]
     private List<String> getUserFavorites(TransactionContext tx, String userId) {
-        return List.of();
+        if (userId == null) return List.of();
+        
+    	
+    		
+		String query = """
+    				MATCH (u:User {userId: $userId})-[:HAS_FAVORITE]->(m)
+					RETURN m.tmdbId AS id
+    				""";
+		var res = tx.run(query, Values.parameters("userId", userId));
+		return res.list(row -> row.get("id").asString());
+		
+    		
+    	
     }
     // end::getUserFavorites[]
 
